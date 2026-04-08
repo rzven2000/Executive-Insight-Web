@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
-import io
 
 # 1. CONFIGURACIÓN DE ESTILO "EXECUTIVE INSIGHT"
 st.set_page_config(page_title="Executive Insight - GTD", layout="wide")
@@ -16,65 +15,35 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. FUNCIÓN PARA CREAR PLANTILLA EXCEL (BOTÓN DE AYUDA)
-def crear_plantilla_excel():
-    output = io.BytesIO()
-    # Datos de ejemplo para la plantilla
-    df_template = pd.DataFrame({
-        'Fase': ['Inicio', 'Planificación', 'Ejecución', 'Cierre'],
-        'Actividad': ['Ejemplo: Levantamiento FO', 'Ejemplo: Permisos', 'Ejemplo: Instalación FW', 'Ejemplo: Acta Entrega'],
-        'Sede': ['Sede 1', 'Sede 2', 'Sede 3', 'Sede 4'],
-        'Tecnología': ['Fibra', 'Fibra', 'MMOO', 'Satelital'],
-        'Inicio': ['2026-04-01', '2026-04-05', '2026-04-10', '2026-04-20'],
-        'Dias': [2, 5, 3, 1],
-        'Progreso': [1.0, 0.5, 0.2, 0.0],
-        'Salud': ['A tiempo', 'En Riesgo', 'Retrasado', 'A tiempo'],
-        'Responsable': ['Nombre 1', 'Nombre 2', 'Nombre 3', 'Nombre 4']
-    })
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_template.to_excel(writer, index=False, sheet_name='Proyectos')
-    return output.getvalue()
-
-# 3. LÓGICA DE OBTENCIÓN DE DATOS
+# 2. FUNCIÓN PARA CARGAR DATOS (EXCEL O DEFAULT)
 def obtener_datos():
-    st.sidebar.image("https://www.gtd.cl/images/logo-gtd.png", width=120)
-    st.sidebar.title("Panel de Control PMO")
-    
-    # Botón para descargar plantilla
-    st.sidebar.subheader("1. Descargar Formato")
-    plantilla = crear_plantilla_excel()
-    st.sidebar.download_button(
-        label="📥 Bajar Plantilla Excel",
-        data=plantilla,
-        file_name="plantilla_pmo_gtd.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
+    # 2.1. Lógica de Carga de Archivo en Sidebar
     st.sidebar.markdown("---")
-    st.sidebar.subheader("2. Subir Datos Actualizados")
-    archivo_subido = st.sidebar.file_uploader("Arrastra tu Excel aquí", type=["xlsx"])
+    st.sidebar.subheader("📁 Cargar Datos")
+    archivo_subido = st.sidebar.file_uploader("Sube tu Excel (.xlsx)", type=["xlsx"])
 
     if archivo_subido is not None:
         try:
             df_user = pd.read_excel(archivo_subido)
+            # Asegurar formato de fechas
             df_user['Inicio'] = pd.to_datetime(df_user['Inicio'])
-            # Cálculo automático de fecha de fin si no existe
-            df_user['Fin'] = df_user.apply(lambda x: x['Inicio'] + timedelta(days=x['Dias']), axis=1)
+            if 'Fin' not in df_user.columns:
+                df_user['Fin'] = df_user.apply(lambda x: x['Inicio'] + timedelta(days=x['Dias']), axis=1)
             return df_user
         except Exception as e:
-            st.error(f"Error en el formato del archivo: {e}")
+            st.error(f"Error al leer el archivo: {e}")
     
-    # Datos por defecto (Vista Inicial)
+    # 2.2. Datos por defecto (si no hay archivo subido)
     data = {
-        'Fase': ['Ejecución', 'Planificación'],
-        'Actividad': ['Instalación FW Combarbalá', 'Revisión Ruta Mapocho'],
-        'Sede': ['La Granja', 'Quinta Normal'],
-        'Tecnología': ['Fibra', 'Fibra'],
-        'Inicio': pd.to_datetime(['2026-04-01', '2026-04-10']),
-        'Dias': [1, 1],
-        'Progreso': [1.0, 0.0],
-        'Salud': ['A tiempo', 'En Riesgo'],
-        'Responsable': ['Stif Jara', 'Javier Ramírez']
+        'Fase': ['Inicio', 'Planificación', 'Ejecución', 'Cierre'],
+        'Actividad': ['Levantamiento FO', 'Permisos', 'Instalación', 'Entrega'],
+        'Sede': ['Quinta Normal', 'Maipú', 'Concepción', 'Providencia'],
+        'Tecnología': ['Fibra', 'Fibra', 'Satelital', 'Multitecnología'],
+        'Inicio': pd.to_datetime(['2026-04-01', '2026-04-04', '2026-04-06', '2026-04-12']),
+        'Dias': [3, 10, 5, 2],
+        'Progreso': [1.0, 0.4, 0.2, 0.0],
+        'Salud': ['A tiempo', 'En Riesgo', 'Retrasado', 'A tiempo'],
+        'Responsable': ['Stif Jara', 'A. Soto', 'G. Cerda', 'F. Penrroz']
     }
     df_def = pd.DataFrame(data)
     df_def['Fin'] = df_def.apply(lambda x: x['Inicio'] + timedelta(days=x['Dias']), axis=1)
@@ -82,25 +51,28 @@ def obtener_datos():
 
 df = obtener_datos()
 
-# 4. FILTROS Y ESCALA
+# 3. SIDEBAR (FILTROS DINÁMICOS)
+st.sidebar.image("https://www.gtd.cl/images/logo-gtd.png", width=120)
+st.sidebar.title("Panel de Control PMO")
+
 fase_sel = st.sidebar.multiselect("Filtrar Fase", df['Fase'].unique(), default=df['Fase'].unique())
 sede_sel = st.sidebar.multiselect("Filtrar Sede", df['Sede'].unique(), default=df['Sede'].unique())
 escala = st.sidebar.radio("Escala de Tiempo", ["Días", "Semanas", "Meses"])
 
 df_filt = df[(df['Fase'].isin(fase_sel)) & (df['Sede'].isin(sede_sel))]
 
-# 5. DASHBOARD: KPIs
-st.title("📊 Executive Insight: Gestión PMO")
+# 4. DASHBOARD: KPIs
+st.title("📊 Executive Insight: Dashboard Dinámico")
 k1, k2, k3 = st.columns(3)
 with k1:
-    st.metric("Progreso Global", f"{df_filt['Progreso'].mean():.1%}" if not df_filt.empty else "0%")
+    st.metric("Progreso Global", f"{df_filt['Progreso'].mean():.1%}")
 with k2:
     criticos = len(df_filt[df_filt['Salud'] == 'Retrasado'])
     st.metric("Alertas Críticas", criticos, delta=f"{criticos} Riesgos", delta_color="inverse")
 with k3:
     st.metric("Total Tareas", len(df_filt))
 
-# 6. CARTA GANTT DINÁMICA
+# 5. CARTA GANTT DINÁMICA
 st.markdown("---")
 if not df_filt.empty:
     fig = px.timeline(
@@ -111,12 +83,22 @@ if not df_filt.empty:
     )
     fig.update_yaxes(autorange="reversed")
     
-    # Ajuste de Escala Dinámica
-    t_format, t_tick = ("%d %b", "D1") if escala == "Días" else (("Sem %W", 604800000.0) if escala == "Semanas" else ("%B", "M1"))
-    
+    # Ajuste de Escala
+    if escala == "Días":
+        t_format, t_tick = "%d %b", "D1"
+    elif escala == "Semanas":
+        t_format, t_tick = "Sem %W", 604800000.0
+    else:
+        t_format, t_tick = "%B", "M1"
+
     fig.update_layout(xaxis=dict(tickformat=t_format, dtick=t_tick, title=""), plot_bgcolor="white", height=450)
     st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("Sin datos para mostrar.")
 
-# 7. TABLA DE DETALLE
-st.markdown("### Tabla de Actividades")
-st.dataframe(df_filt.drop(columns=['Fin']), use_container_width=True)
+# 6. TABLA DE DATOS Y PLANTILLA
+st.markdown("### Detalle de Actividades")
+st.dataframe(df_filt, use_container_width=True)
+
+# Ayuda para el usuario: Descargar plantilla
+st.info("💡 **Consejo:** Para subir tareas nuevas, asegúrate de que tu Excel tenga estas columnas: `Fase, Actividad, Sede, Tecnología, Inicio, Dias, Progreso, Salud, Responsable`.")
