@@ -22,8 +22,9 @@ if 'df_datos' not in st.session_state:
         'Actividad': ['Instalación FW Combarbalá', 'Ruta FO Mapocho', 'Nodo Peñalolén', 'Entrega Acta Huechuraba', 'Levantamiento Maipú'],
         'Sede': ['La Granja', 'Quinta Normal', 'Peñalolén', 'Huechuraba', 'Maipú'],
         'Tecnología': ['Fibra', 'Fibra', 'MMOO', 'SD-WAN', 'Fibra'],
-        'Inicio': pd.to_datetime(['2026-04-01', '2026-04-06', '2026-04-10', '2026-04-20', '2026-04-01']).date(),
-        'Dias': [4, 14, 30, 2, 3], # Tareas de distintos largos para probar el zoom
+        # AQUÍ ESTÁ LA CORRECCIÓN: Se quitó el .date() que causaba el TypeError
+        'Inicio': pd.to_datetime(['2026-04-01', '2026-04-06', '2026-04-10', '2026-04-20', '2026-04-01']),
+        'Dias': [4, 14, 30, 2, 3], 
         'Progreso': [1.0, 0.2, 0.0, 0.0, 1.0],
         'Salud': ['A tiempo', 'En Riesgo', 'Retrasado', 'A tiempo', 'A tiempo'],
         'Responsable': ['Stif Jara', 'Javier R.', 'F. Penrroz', 'G. Cerda', 'A. Soto']
@@ -34,7 +35,7 @@ st.sidebar.image("https://www.gtd.cl/images/logo-gtd.png", width=120)
 st.sidebar.title("Panel PMO")
 
 st.sidebar.markdown("---")
-# Este es el control maestro de la cuadrícula
+# Este es el control maestro de la cuadrícula (Zoom real)
 escala = st.sidebar.radio("🔍 Unidad de Cuadrícula (Zoom)", ["Días", "Semanas", "Meses"])
 
 st.sidebar.markdown("---")
@@ -74,6 +75,7 @@ with k4:
 # 5. EDITOR DE DATOS OCULTO (Limpio y Ejecutivo)
 with st.expander("✏️ Editar Datos del Proyecto (Clic para abrir)"):
     st.info("Modifica directamente la tabla. Puedes agregar nuevas filas al final. Los cambios actualizarán la Gantt al instante.")
+    
     # Editor interactivo
     df_editado = st.data_editor(
         st.session_state.df_datos,
@@ -85,6 +87,7 @@ with st.expander("✏️ Editar Datos del Proyecto (Clic para abrir)"):
             "Inicio": st.column_config.DateColumn(format="YYYY-MM-DD")
         }
     )
+    
     # Guardar cambios en memoria si hubo modificaciones
     if not df_editado.equals(st.session_state.df_datos):
         st.session_state.df_datos = df_editado
@@ -100,10 +103,10 @@ if not df_filt.empty:
         t_tick = 86400000.0  # Exactamente 1 día en milisegundos
     elif escala == "Semanas":
         t_format = "Sem %W"
-        t_tick = 604800000.0 # Exactamente 7 días en milisegundos (1 bloque = 1 semana)
+        t_tick = 604800000.0 # Exactamente 7 días en milisegundos
     else: # Meses
         t_format = "%B %Y"
-        t_tick = "M1"        # Exactamente 1 mes (1 bloque = 1 mes)
+        t_tick = "M1"        # Exactamente 1 mes en sintaxis de Plotly
 
     fig = px.timeline(
         df_filt, x_start="Inicio", x_end="Fin", y="Actividad",
@@ -130,7 +133,7 @@ if not df_filt.empty:
     fig.update_layout(
         xaxis=dict(
             tickformat=t_format, 
-            dtick=t_tick,      # Aquí es donde le decimos a Plotly el tamaño de la unidad
+            dtick=t_tick,      
             type='date', 
             gridcolor="#E0E0E0",
             showgrid=True
@@ -148,6 +151,10 @@ else:
 st.markdown("### Resumen Detallado")
 columnas_vista = ['Fase', 'Actividad', 'Sede', 'Tecnología', 'Responsable', 'Inicio', 'Dias', 'Fin', 'Progreso', 'Salud']
 st.dataframe(
-    df_filt[columnas_vista].style.format({'Progreso': '{:.0%}', 'Inicio': '{:%Y-%m-%d}', 'Fin': '{:%Y-%m-%d}'}), 
+    df_filt[columnas_vista].style.format({
+        'Progreso': '{:.0%}', 
+        'Inicio': lambda x: x.strftime('%Y-%m-%d'), 
+        'Fin': lambda x: x.strftime('%Y-%m-%d')
+    }), 
     use_container_width=True
 )
