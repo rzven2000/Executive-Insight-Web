@@ -15,14 +15,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. INICIALIZAR DATOS EN MEMORIA (Sin archivos Excel)
+# 2. INICIALIZAR DATOS EN MEMORIA
 if 'df_datos' not in st.session_state:
     st.session_state.df_datos = pd.DataFrame({
         'Fase': ['Ejecución', 'Planificación', 'Ejecución', 'Cierre', 'Inicio'],
         'Actividad': ['Instalación FW Combarbalá', 'Ruta FO Mapocho', 'Nodo Peñalolén', 'Entrega Acta Huechuraba', 'Levantamiento Maipú'],
         'Sede': ['La Granja', 'Quinta Normal', 'Peñalolén', 'Huechuraba', 'Maipú'],
         'Tecnología': ['Fibra', 'Fibra', 'MMOO', 'SD-WAN', 'Fibra'],
-        # AQUÍ ESTÁ LA CORRECCIÓN: Se quitó el .date() que causaba el TypeError
         'Inicio': pd.to_datetime(['2026-04-01', '2026-04-06', '2026-04-10', '2026-04-20', '2026-04-01']),
         'Dias': [4, 14, 30, 2, 3], 
         'Progreso': [1.0, 0.2, 0.0, 0.0, 1.0],
@@ -35,13 +34,12 @@ st.sidebar.image("https://www.gtd.cl/images/logo-gtd.png", width=120)
 st.sidebar.title("Panel PMO")
 
 st.sidebar.markdown("---")
-# Este es el control maestro de la cuadrícula (Zoom real)
 escala = st.sidebar.radio("🔍 Unidad de Cuadrícula (Zoom)", ["Días", "Semanas", "Meses"])
 
 st.sidebar.markdown("---")
 df = st.session_state.df_datos
 
-# Filtros
+# Filtros Multi-selección
 fase_sel = st.sidebar.multiselect("Filtrar Fase", df['Fase'].unique(), default=df['Fase'].unique())
 sede_sel = st.sidebar.multiselect("Filtrar Sede", df['Sede'].unique(), default=df['Sede'].unique())
 tec_sel = st.sidebar.multiselect("Filtrar Tecnología", df['Tecnología'].unique(), default=df['Tecnología'].unique())
@@ -54,7 +52,7 @@ df_filt = df[
     (df['Responsable'].isin(resp_sel))
 ].copy()
 
-# Calculamos el FIN dinámicamente basado en los días
+# Cálculo de Fin dinámico
 df_filt['Inicio'] = pd.to_datetime(df_filt['Inicio'])
 df_filt['Fin'] = df_filt.apply(lambda x: x['Inicio'] + timedelta(days=int(x['Dias'])), axis=1)
 
@@ -72,11 +70,9 @@ with k3:
 with k4:
     st.metric("Total Tareas", len(df_filt))
 
-# 5. EDITOR DE DATOS OCULTO (Limpio y Ejecutivo)
+# 5. EDITOR DE DATOS DESPLEGABLE
 with st.expander("✏️ Editar Datos del Proyecto (Clic para abrir)"):
-    st.info("Modifica directamente la tabla. Puedes agregar nuevas filas al final. Los cambios actualizarán la Gantt al instante.")
-    
-    # Editor interactivo
+    st.info("Los cambios realizados aquí se reflejarán inmediatamente en el gráfico inferior.")
     df_editado = st.data_editor(
         st.session_state.df_datos,
         num_rows="dynamic",
@@ -87,26 +83,22 @@ with st.expander("✏️ Editar Datos del Proyecto (Clic para abrir)"):
             "Inicio": st.column_config.DateColumn(format="YYYY-MM-DD")
         }
     )
-    
-    # Guardar cambios en memoria si hubo modificaciones
     if not df_editado.equals(st.session_state.df_datos):
         st.session_state.df_datos = df_editado
         st.rerun()
 
-# 6. CARTA GANTT CON LÍNEA DE HOY Y ESCALA REAL
+# 6. CARTA GANTT COMPLETA
 st.markdown("---")
 
 if not df_filt.empty:
-    # LÓGICA DE ESCALA EXACTA
+    # Lógica de escala y sombreado
+    mostrar_finde = False
     if escala == "Días":
-        t_format = "%d %b"
-        t_tick = 86400000.0  # Exactamente 1 día en milisegundos
+        t_format, t_tick, mostrar_finde = "%d %b", 86400000.0, True
     elif escala == "Semanas":
-        t_format = "Sem %W"
-        t_tick = 604800000.0 # Exactamente 7 días en milisegundos
+        t_format, t_tick, mostrar_finde = "Sem %W", 604800000.0, True
     else: # Meses
-        t_format = "%B %Y"
-        t_tick = "M1"        # Exactamente 1 mes en sintaxis de Plotly
+        t_format, t_tick = "%B %Y", "M1"
 
     fig = px.timeline(
         df_filt, x_start="Inicio", x_end="Fin", y="Actividad",
@@ -114,40 +106,39 @@ if not df_filt.empty:
         hover_data=["Responsable", "Tecnología", "Dias"],
         color_discrete_map={"A tiempo": "#0055A4", "En Riesgo": "#D1D5DB", "Retrasado": "#FF0000"}
     )
-    
     fig.update_yaxes(autorange="reversed", title="")
 
-    # INDICADOR DEL DÍA DE HOY (Línea Roja Punteada)
+    # SOMBREADO DE FINES DE SEMANA
+    if mostrar_finde:
+        min_date = df_filt['Inicio'].min() - timedelta(days=7)
+        max_date = df_filt['Fin'].max() + timedelta(days=7)
+        curr = min_date
+        while curr <= max_date:
+            if curr.weekday() >= 5: # 5=Sábado, 6=Domingo
+                fig.add_vrect(
+                    x0=curr.strftime("%Y-%m-%d"), 
+                    x1=(curr + timedelta(days=1)).strftime("%Y-%m-%d"), 
+                    fillcolor="gray", opacity=0.15, layer="below", line_width=0
+                )
+            curr += timedelta(days=1)
+
+    # LÍNEA DE HOY
     hoy = datetime.now()
     fig.add_vline(
-        x=hoy.timestamp() * 1000, 
-        line_width=2, 
-        line_dash="dash", 
-        line_color="#FF4B4B",
-        annotation_text="Día Actual", 
-        annotation_position="top right",
-        annotation_font_color="#FF4B4B"
+        x=hoy.timestamp() * 1000, line_width=2, line_dash="dash", line_color="#FF4B4B",
+        annotation_text="Hoy", annotation_position="top right"
     )
 
-    # Forzar la escala de la cuadrícula
     fig.update_layout(
-        xaxis=dict(
-            tickformat=t_format, 
-            dtick=t_tick,      
-            type='date', 
-            gridcolor="#E0E0E0",
-            showgrid=True
-        ),
-        plot_bgcolor="white", 
-        height=500, 
-        showlegend=True
+        xaxis=dict(tickformat=t_format, dtick=t_tick, type='date', gridcolor="#E0E0E0", showgrid=True),
+        plot_bgcolor="white", height=500, showlegend=True
     )
 
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("No hay datos para los filtros seleccionados.")
+    st.info("Sin datos para mostrar.")
 
-# 7. TABLA DE DETALLES
+# 7. TABLA DE RESUMEN
 st.markdown("### Resumen Detallado")
 columnas_vista = ['Fase', 'Actividad', 'Sede', 'Tecnología', 'Responsable', 'Inicio', 'Dias', 'Fin', 'Progreso', 'Salud']
 st.dataframe(
