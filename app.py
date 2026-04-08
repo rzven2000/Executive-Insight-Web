@@ -4,22 +4,22 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-# 1. CONFIGURACIÓN DE ESTILO "EXECUTIVE INSIGHT"
+# 1. CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Executive Insight - GTD", layout="wide")
 
+# Estilos CSS para el look Ejecutivo y colores GTD
 st.markdown("""
     <style>
-    .main { background-color: #f4f7f9; }
-    [data-testid="stSidebar"] { background-color: #0055A4; min-width: 250px; }
+    .main { background-color: #f5f7f9; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    [data-testid="stSidebar"] { background-color: #0055A4; color: white; }
     [data-testid="stSidebar"] * { color: white !important; }
-    .stMetric { background-color: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #eef2f6; }
-    .css-1offfwp e16nr0p33 { color: white; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. MOTOR DE DATOS (Simulación de Infraestructura Abril 2026)
+# 2. BASE DE DATOS INTERNA (10 Casos Reales Telecom)
 @st.cache_data
-def cargar_datos_maestros():
+def cargar_datos():
     data = {
         'Fase': ['Inicio', 'Planificación', 'Ejecución', 'Ejecución', 'Cierre', 'Planificación', 'Ejecución', 'Inicio', 'Ejecución', 'Cierre'],
         'Actividad': [
@@ -30,112 +30,115 @@ def cargar_datos_maestros():
         'Sede': ['Quinta Normal', 'Maipú', 'Concepción', 'Peñalolén', 'Viña del Mar', 'Temuco', 'Los Ángeles', 'Lampa', 'Quilpué', 'Providencia'],
         'Tecnología': ['Fibra', 'Fibra', 'Satelital', 'Fibra', 'MMOO', 'MMOO', 'MMOO', 'Starlink', 'Fibra', 'Multitecnología'],
         'Inicio': pd.to_datetime(['2026-04-01', '2026-04-04', '2026-04-05', '2026-04-06', '2026-04-10', '2026-04-02', '2026-04-07', '2026-04-01', '2026-04-08', '2026-04-12']),
-        'Dias': [3, 10, 2, 5, 2, 7, 4, 2, 6, 2],
+        'Dias': [3, 10, 2, 5, 1, 7, 4, 1, 6, 1],
         'Progreso': [1.0, 0.4, 0.1, 0.6, 0.0, 0.8, 0.2, 1.0, 0.3, 0.0],
-        'Salud': ['A tiempo', 'En Riesgo', 'Retrasado', 'A tiempo', 'A tiempo', 'En Riesgo', 'Retrasado', 'A tiempo', 'A tiempo', 'A tiempo'],
-        'Responsable': ['Stif Jara', 'A. Soto', 'G. Cerda', 'M. Lara', 'F. Penrroz', 'L. Rojas', 'J. Ramírez', 'A. Soto', 'M. Lara', 'G. Cerda']
+        'Responsable': ['J. Pérez', 'A. Soto', 'G. Cerda', 'M. Lara', 'J. Pérez', 'L. Rojas', 'G. Cerda', 'A. Soto', 'M. Lara', 'J. Pérez'],
+        'Salud': ['A tiempo', 'En Riesgo', 'Retrasado', 'A tiempo', 'A tiempo', 'En Riesgo', 'Retrasado', 'A tiempo', 'A tiempo', 'A tiempo']
     }
     df = pd.DataFrame(data)
     df['Fin'] = df.apply(lambda x: x['Inicio'] + timedelta(days=x['Dias']), axis=1)
     return df
 
-df = cargar_datos_maestros()
+df = cargar_datos()
 
-# 3. SIDEBAR (FILTROS)
-st.sidebar.image("https://www.gtd.cl/images/logo-gtd.png", width=120)
-st.sidebar.title("Panel de Control PMO")
+# 3. SIDEBAR (FILTROS / SLICERS)
+st.sidebar.image("https://www.gtd.cl/images/logo-gtd.png", width=100) # Logo genérico GTD
+st.sidebar.title("Filtros de Gestión")
 
-fase_sel = st.sidebar.multiselect("Filtrar Fase", df['Fase'].unique(), default=df['Fase'].unique())
-sede_sel = st.sidebar.multiselect("Filtrar Sede", df['Sede'].unique(), default=df['Sede'].unique())
-escala = st.sidebar.radio("Escala de Tiempo Dashboard", ["Días", "Semanas", "Meses"])
+fase_filt = st.sidebar.multiselect("Filtrar por Fase", options=df['Fase'].unique(), default=df['Fase'].unique())
+sede_filt = st.sidebar.multiselect("Filtrar por Sede", options=df['Sede'].unique(), default=df['Sede'].unique())
+tec_filt = st.sidebar.multiselect("Filtrar por Tecnología", options=df['Tecnología'].unique(), default=df['Tecnología'].unique())
+salud_filt = st.sidebar.multiselect("Estado de Salud", options=df['Salud'].unique(), default=df['Salud'].unique())
 
-df_filt = df[(df['Fase'].isin(fase_sel)) & (df['Sede'].isin(sede_sel))]
+escala = st.sidebar.radio("Escala de Tiempo", ["Días", "Semanas", "Meses"])
 
-# 4. DASHBOARD: KPIs SUPERIORES
-st.title("📊 Executive Insight: Gestión de Proyectos")
-st.markdown("### Dashboard Semanal de Infraestructura")
+# Filtrado de Datos
+df_filt = df[
+    (df['Fase'].isin(fase_filt)) & 
+    (df['Sede'].isin(sede_filt)) & 
+    (df['Tecnología'].isin(tec_filt)) & 
+    (df['Salud'].isin(salud_filt))
+]
 
-k1, k2, k3, k4 = st.columns(4)
-with k1:
-    st.metric("Progreso Global", f"{df_filt['Progreso'].mean():.1%}")
-with k2:
-    criticos = len(df_filt[df_filt['Salud'] == 'Retrasado'])
-    st.metric("Alertas Críticas", criticos, delta=f"{criticos} Riesgos", delta_color="inverse")
-with k3:
-    st.metric("Sedes en Obra", len(df_filt['Sede'].unique()))
-with k4:
-    st.metric("Total Actividades", len(df_filt))
+# 4. DASHBOARD PRINCIPAL
+st.title("📊 Executive Insight: Control de Infraestructura")
+st.subheader("Dashboard Semanal de Gestión PMO")
 
-# 5. CARTA GANTT DINÁMICA
+# KPIs
+col1, col2, col3, col4 = st.columns(4)
+avg_prog = df_filt['Progreso'].mean() if not df_filt.empty else 0
+retrasados = len(df_filt[df_filt['Salud'] == 'Retrasado'])
+
+col1.metric("Progreso Total", f"{avg_prog:.1%}")
+col2.metric("Alertas Críticas", retrasados, delta=-retrasados, delta_color="inverse")
+col3.metric("Sedes Activas", len(df_filt['Sede'].unique()))
+col4.metric("Tecnologías", len(df_filt['Tecnología'].unique()))
+
+# 5. CARTA GANTT INTERACTIVA (Plotly)
 st.markdown("---")
-st.subheader(f"Cronograma Maestro - Visualización por {escala}")
+st.write(f"### Cronograma Maestro - Vista por {escala}")
 
 if not df_filt.empty:
-    # Usamos px.timeline para asegurar que las barras se vean
-    fig = px.timeline(
-        df_filt, 
-        x_start="Inicio", 
-        x_end="Fin", 
-        y="Actividad",
-        color="Salud",
-        hover_data=["Sede", "Responsable", "Tecnología"],
-        color_discrete_map={
-            "A tiempo": "#0055A4",   # Azul GTD
-            "En Riesgo": "#D1D5DB",  # Gris Corporativo
-            "Retrasado": "#FF0000"   # Rojo Alerta
-        },
-        text="Sede" # Muestra el nombre de la sede sobre la barra
-    )
+    fig = go.Figure()
 
-    # Invertir eje Y (Tareas más recientes arriba)
-    fig.update_yaxes(autorange="reversed", title="")
+    for i, row in df_filt.iterrows():
+        # Color Lógica
+        color_prog = "#0055A4" # Azul GTD
+        if row['Salud'] == 'Retrasado':
+            color_prog = "#FF0000" # Rojo Alerta
+        
+        # 1. Barra Base (Gris)
+        fig.add_trace(go.Bar(
+            x=[row['Dias']],
+            y=[row['Actividad']],
+            base=row['Inicio'],
+            orientation='h',
+            marker=dict(color='#D9D9D9'),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        # 2. Barra Progreso (Azul/Rojo)
+        progreso_dias = row['Dias'] * row['Progreso']
+        fig.add_trace(go.Bar(
+            x=[progreso_dias],
+            y=[row['Actividad']],
+            base=row['Inicio'],
+            orientation='h',
+            marker=dict(color=color_prog),
+            name=row['Salud'],
+            hovertemplate=f"Sede: {row['Sede']}<br>Responsable: {row['Responsable']}<br>Avance: {row['Progreso']:.0%}"
+        ))
 
-    # LÓGICA DE ESCALA DINÁMICA
-    # Configuramos los "ticks" (marcas) del calendario según tu elección
-    if escala == "Días":
-        tick_format = "%d %b"
-        dtick_val = "D1" # Un salto por día
-    elif escala == "Semanas":
-        tick_format = "Sem %W - %d %b"
-        dtick_val = 604800000.0 # Milisegundos en una semana
-    else: # Meses
-        tick_format = "%B %Y"
-        dtick_val = "M1" # Un salto por mes
-
-    fig.update_layout(
-        xaxis=dict(
-            title="Línea de Tiempo (Abril 2026)",
-            tickformat=tick_format,
-            dtick=dtick_val,
-            gridcolor="#E5E7EB"
-        ),
-        plot_bgcolor="white",
-        height=500,
-        showlegend=True,
-        legend_title_text="Estado de Salud",
-        margin=dict(l=20, r=20, t=20, b=20)
-    )
-
-    # Resaltar Fines de Semana
-    min_d = df_filt['Inicio'].min()
-    max_d = df_filt['Fin'].max()
-    curr = min_d
-    while curr <= max_d:
-        if curr.weekday() >= 5: # Sábado y Domingo
+    # Resaltado de Fines de Semana
+    start_date = df_filt['Inicio'].min()
+    end_date = df_filt['Fin'].max()
+    curr = start_date
+    while curr <= end_date:
+        if curr.weekday() >= 5: # Sábado o Domingo
             fig.add_vrect(x0=curr, x1=curr + timedelta(days=1), fillcolor="gray", opacity=0.1, layer="below", line_width=0)
         curr += timedelta(days=1)
 
+    # Configuración de Ejes
+    dtick_map = {"Días": "D1", "Semanas": 604800000.0, "Meses": "M1"}
+    
+    fig.update_layout(
+        barmode='stack',
+        height=500,
+        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis=dict(type='date', dtick=dtick_map[escala], tickformat="%d %b"),
+        yaxis=dict(autorange="reversed"),
+        showlegend=False,
+        plot_bgcolor='white'
+    )
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.warning("Seleccione al menos una Fase o Sede para visualizar los datos.")
+    st.warning("No hay datos que coincidan con los filtros seleccionados.")
 
-# 6. TABLA DE DETALLE (Dataframe Estilizado)
-st.markdown("### Vista de Datos")
-st.dataframe(
-    df_filt[['Fase', 'Actividad', 'Sede', 'Tecnología', 'Responsable', 'Salud', 'Progreso']].style.format({'Progreso': '{:.0%}'}),
-    use_container_width=True
-)
+# 6. TABLA DE DETALLE (Espejo de Excel)
+st.write("### Detalle de Actividades")
+st.dataframe(df_filt.style.format({'Progreso': '{:.0%}'}), use_container_width=True)
 
-# Botón de Descarga
+# 7. BOTÓN DE DESCARGA
 csv = df_filt.to_csv(index=False).encode('utf-8')
-st.download_button("📥 Exportar Reporte para Gerencia (CSV)", csv, "reporte_ejecutivo_gtd.csv", "text/csv")
+st.download_button("📥 Descargar Reporte en CSV", data=csv, file_name="reporte_gtd.csv", mime="text/csv")
