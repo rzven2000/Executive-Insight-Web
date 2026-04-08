@@ -74,66 +74,57 @@ col2.metric("Alertas Críticas", retrasados, delta=-retrasados, delta_color="inv
 col3.metric("Sedes Activas", len(df_filt['Sede'].unique()))
 col4.metric("Tecnologías", len(df_filt['Tecnología'].unique()))
 
-# 5. CARTA GANTT INTERACTIVA (Plotly)
+# 5. CARTA GANTT INTERACTIVA (Versión Corregida)
 st.markdown("---")
 st.write(f"### Cronograma Maestro - Vista por {escala}")
 
 if not df_filt.empty:
-    fig = go.Figure()
+    # Usamos px.timeline para que reconozca fechas automáticamente
+    fig = px.timeline(
+        df_filt, 
+        x_start="Inicio", 
+        x_end="Fin", 
+        y="Actividad",
+        color="Salud",
+        hover_data=["Sede", "Responsable", "Progreso"],
+        color_discrete_map={
+            "A tiempo": "#0055A4",   # Azul GTD
+            "En Riesgo": "#D9D9D9",  # Gris
+            "Retrasado": "#FF0000"   # Rojo Alerta
+        }
+    )
 
-    for i, row in df_filt.iterrows():
-        # Color Lógica
-        color_prog = "#0055A4" # Azul GTD
-        if row['Salud'] == 'Retrasado':
-            color_prog = "#FF0000" # Rojo Alerta
-        
-        # 1. Barra Base (Gris)
-        fig.add_trace(go.Bar(
-            x=[row['Dias']],
-            y=[row['Actividad']],
-            base=row['Inicio'],
-            orientation='h',
-            marker=dict(color='#D9D9D9'),
-            showlegend=False,
-            hoverinfo='skip'
-        ))
-        
-        # 2. Barra Progreso (Azul/Rojo)
-        progreso_dias = row['Dias'] * row['Progreso']
-        fig.add_trace(go.Bar(
-            x=[progreso_dias],
-            y=[row['Actividad']],
-            base=row['Inicio'],
-            orientation='h',
-            marker=dict(color=color_prog),
-            name=row['Salud'],
-            hovertemplate=f"Sede: {row['Sede']}<br>Responsable: {row['Responsable']}<br>Avance: {row['Progreso']:.0%}"
-        ))
+    # Invertir el eje Y para que la primera tarea aparezca arriba
+    fig.update_yaxes(autorange="reversed")
 
-    # Resaltado de Fines de Semana
+    # Resaltado de Fines de Semana (Sombreado dinámico)
     start_date = df_filt['Inicio'].min()
     end_date = df_filt['Fin'].max()
     curr = start_date
     while curr <= end_date:
-        if curr.weekday() >= 5: # Sábado o Domingo
-            fig.add_vrect(x0=curr, x1=curr + timedelta(days=1), fillcolor="gray", opacity=0.1, layer="below", line_width=0)
+        if curr.weekday() >= 5: # 5=Sábado, 6=Domingo
+            fig.add_vrect(
+                x0=curr, x1=curr + timedelta(days=1), 
+                fillcolor="gray", opacity=0.1, 
+                layer="below", line_width=0
+            )
         curr += timedelta(days=1)
 
-    # Configuración de Ejes
+    # Ajuste de escala según selección
     dtick_map = {"Días": "D1", "Semanas": 604800000.0, "Meses": "M1"}
     
     fig.update_layout(
-        barmode='stack',
         height=500,
         margin=dict(l=10, r=10, t=10, b=10),
         xaxis=dict(type='date', dtick=dtick_map[escala], tickformat="%d %b"),
-        yaxis=dict(autorange="reversed"),
-        showlegend=False,
-        plot_bgcolor='white'
+        plot_bgcolor='white',
+        showlegend=True
     )
+
     st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("No hay datos que coincidan con los filtros seleccionados.")
+
 
 # 6. TABLA DE DETALLE (Espejo de Excel)
 st.write("### Detalle de Actividades")
