@@ -15,7 +15,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. LÓGICA DE CARGA DE DATOS
+# 2. LÓGICA DE CARGA DE DATOS (CON TODAS LAS COLUMNAS)
 def obtener_datos():
     st.sidebar.image("https://www.gtd.cl/images/logo-gtd.png", width=120)
     st.sidebar.title("Panel de Control PMO")
@@ -28,13 +28,13 @@ def obtener_datos():
         try:
             df_user = pd.read_excel(archivo)
             df_user['Inicio'] = pd.to_datetime(df_user['Inicio'])
-            if 'Fin' not in df_user.columns:
-                df_user['Fin'] = df_user.apply(lambda x: x['Inicio'] + timedelta(days=int(x['Dias'])), axis=1)
+            # Aseguramos que la columna Fin exista para el gráfico
+            df_user['Fin'] = df_user.apply(lambda x: x['Inicio'] + timedelta(days=int(x['Dias'])), axis=1)
             return df_user
         except Exception as e:
             st.error(f"Error al leer el archivo: {e}")
     
-    # DATOS DE PRUEBA COMPLETOS (Si no hay carga)
+    # DATOS DE PRUEBA INICIALES (CON ESTRUCTURA COMPLETA)
     data = {
         'Fase': ['Ejecución', 'Planificación', 'Ejecución', 'Cierre', 'Inicio'],
         'Actividad': ['Instalación FW Combarbalá', 'Ruta FO Mapocho', 'Nodo Peñalolén', 'Entrega Acta Huechuraba', 'Levantamiento Maipú'],
@@ -52,25 +52,28 @@ def obtener_datos():
 
 df = obtener_datos()
 
-# 3. FILTROS MULTI-SELECCIÓN (RECUPERADOS)
+# 3. FILTROS EN SIDEBAR (RESTAURADOS AL 100%)
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Filtros de Vista")
+st.sidebar.subheader("⚙️ Filtros Inteligentes")
 
-escala = st.sidebar.radio("🔍 Zoom del Cronograma", ["Días", "Semanas", "Meses"])
+escala = st.sidebar.radio("🔍 Zoom Temporal", ["Días", "Semanas", "Meses"])
 
-fase_sel = st.sidebar.multiselect("Filtrar Fase", df['Fase'].unique(), default=df['Fase'].unique())
-sede_sel = st.sidebar.multiselect("Filtrar Sede", df['Sede'].unique(), default=df['Sede'].unique())
-tec_sel = st.sidebar.multiselect("Filtrar Tecnología", df['Tecnología'].unique(), default=df['Tecnología'].unique())
+# Filtros dinámicos basados en los datos cargados
+fase_sel = st.sidebar.multiselect("Filtrar por Fase", df['Fase'].unique(), default=df['Fase'].unique())
+sede_sel = st.sidebar.multiselect("Filtrar por Sede", df['Sede'].unique(), default=df['Sede'].unique())
+tec_sel = st.sidebar.multiselect("Filtrar por Tecnología", df['Tecnología'].unique(), default=df['Tecnología'].unique())
+resp_sel = st.sidebar.multiselect("Filtrar por Responsable", df['Responsable'].unique(), default=df['Responsable'].unique())
 
-# Aplicación de filtros combinados
+# Aplicación de los 4 filtros
 df_filt = df[
     (df['Fase'].isin(fase_sel)) & 
     (df['Sede'].isin(sede_sel)) & 
-    (df['Tecnología'].isin(tec_sel))
+    (df['Tecnología'].isin(tec_sel)) &
+    (df['Responsable'].isin(resp_sel))
 ]
 
-# 4. DASHBOARD DE MÉTRICAS
-st.title("📊 Executive Insight: Dashboard PMO")
+# 4. DASHBOARD DE MÉTRICAS (KPIs)
+st.title("📊 Executive Insight: Gestión PMO")
 k1, k2, k3, k4 = st.columns(4)
 with k1:
     prog = df_filt['Progreso'].mean() if not df_filt.empty else 0
@@ -79,30 +82,27 @@ with k2:
     alertas = len(df_filt[df_filt['Salud'] == 'Retrasado'])
     st.metric("Alertas Críticas", alertas, delta=f"{alertas} Riesgos", delta_color="inverse")
 with k3:
-    st.metric("Sedes Activas", len(df_filt['Sede'].unique()))
+    st.metric("Sedes Impactadas", len(df_filt['Sede'].unique()))
 with k4:
     st.metric("Total Actividades", len(df_filt))
 
-# 5. CARTA GANTT DINÁMICA
+# 5. CARTA GANTT CON ZOOM Y FINES DE SEMANA
 st.markdown("---")
-st.subheader(f"Cronograma Maestro - Vista por {escala}")
+st.subheader(f"Cronograma Maestro - Visualización por {escala}")
 
 if not df_filt.empty:
-    # Configuración de Zoom
+    # Lógica de escala para el Zoom
     if escala == "Días":
-        t_format, t_tick = "%d %b", "D1"
-        mostrar_finde = True
+        t_format, t_tick, mostrar_finde = "%d %b", "D1", True
     elif escala == "Semanas":
-        t_format, t_tick = "Sem %W", 604800000.0
-        mostrar_finde = True
-    else:
-        t_format, t_tick = "%B %Y", "M1"
-        mostrar_finde = False
+        t_format, t_tick, mostrar_finde = "Sem %W", 604800000.0, True
+    else: # Meses
+        t_format, t_tick, mostrar_finde = "%B %Y", "M1", False
 
     fig = px.timeline(
         df_filt, x_start="Inicio", x_end="Fin", y="Actividad",
         color="Salud", text="Sede",
-        hover_data=["Responsable", "Tecnología", "Fase"],
+        hover_data=["Responsable", "Tecnología", "Fase", "Dias", "Progreso"],
         color_discrete_map={
             "A tiempo": "#0055A4", "En Riesgo": "#D1D5DB", "Retrasado": "#FF0000"
         }
@@ -126,10 +126,17 @@ if not df_filt.empty:
 
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("Ajuste los filtros para visualizar los datos.")
+    st.info("Utilice los filtros laterales para visualizar la información.")
 
 # 6. TABLA DE DETALLE (TODAS LAS COLUMNAS RECUPERADAS)
-st.markdown("### Detalle de Actividades")
-# Mostramos todas las columnas relevantes excepto la auxiliar 'Fin'
-columnas_vista = ['Fase', 'Actividad', 'Sede', 'Tecnología', 'Responsable', 'Inicio', 'Dias', 'Progreso', 'Salud']
-st.dataframe(df_filt[columnas_vista].style.format({'Progreso': '{:.0%}'}), use_container_width=True)
+st.markdown("### Tabla Detallada de Actividades")
+# Definimos el orden exacto de todas las columnas iniciales
+columnas_finales = ['Fase', 'Actividad', 'Sede', 'Tecnología', 'Responsable', 'Inicio', 'Dias', 'Fin', 'Progreso', 'Salud']
+st.dataframe(
+    df_filt[columnas_finales].style.format({
+        'Progreso': '{:.0%}',
+        'Inicio': lambda x: x.strftime('%Y-%m-%d'),
+        'Fin': lambda x: x.strftime('%Y-%m-%d')
+    }), 
+    use_container_width=True
+)
