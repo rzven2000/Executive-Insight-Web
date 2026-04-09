@@ -631,11 +631,35 @@ def pantalla_proyectos():
 
 
 # ══════════════════════════════════════════════════════════════
+#  NORMALIZACIÓN DE COLUMNAS (compatibilidad Excel/demo)
+# ══════════════════════════════════════════════════════════════
+def normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
+    """Asegura nombres canónicos con tilde y tipos correctos."""
+    df = df.copy()
+    df.rename(columns={"Tecnologias": "Tecnologías", "Dias": "Días"}, inplace=True)
+    if "Días" in df.columns:
+        df["Días"] = pd.to_numeric(df["Días"], errors="coerce").fillna(1).astype(int)
+    if "Progreso" in df.columns:
+        df["Progreso"] = pd.to_numeric(df["Progreso"], errors="coerce").fillna(0).clip(0, 1)
+    if "Fecha Inicio" in df.columns:
+        df["Fecha Inicio"] = pd.to_datetime(df["Fecha Inicio"], dayfirst=True, errors="coerce")
+    if "Fecha Final" in df.columns:
+        df["Fecha Final"] = pd.to_datetime(df["Fecha Final"], dayfirst=True, errors="coerce")
+    if ("Fecha Final" not in df.columns or df["Fecha Final"].isna().all()) and "Fecha Inicio" in df.columns and "Días" in df.columns:
+        df["Fecha Final"] = df.apply(
+            lambda r: r["Fecha Inicio"] + pd.Timedelta(days=int(r["Días"]) - 1), axis=1
+        )
+    if "Dias Completados" not in df.columns and "Días" in df.columns and "Progreso" in df.columns:
+        df["Dias Completados"] = (df["Días"] * df["Progreso"]).round(1)
+    return df
+
+
+# ══════════════════════════════════════════════════════════════
 #  PANTALLA 2: DASHBOARD DEL PROYECTO ACTIVO
 # ══════════════════════════════════════════════════════════════
 def pantalla_dashboard(nombre_proyecto: str):
     meta      = st.session_state.proyectos[nombre_proyecto]
-    df_master = meta["df"]
+    df_master = normalizar_columnas(meta["df"])
 
     # ── Sidebar ───────────────────────────────────────────────
     with st.sidebar:
@@ -1016,7 +1040,7 @@ def pantalla_dashboard(nombre_proyecto: str):
                 f"Responsable: {row['Responsable']}<br>"
                 f"Inicio: {fi_ts.strftime('%d/%m/%Y')}<br>"
                 f"Fin: {ff_ts.strftime('%d/%m/%Y')}<br>"
-                f"Duracion: {int(row['Días'])} dias<br>"
+                f"Duracion: {int(row.get('Días', row.get('Dias', 1)))} dias<br>"
                 f"Progreso: {prog*100:.0f}%<br>"
                 f"Estado: <b>{estado}</b><br>"
                 "<extra></extra>"
@@ -1036,7 +1060,7 @@ def pantalla_dashboard(nombre_proyecto: str):
                     width=0.55, showlegend=False,
                     hovertemplate=(
                         f"<b>{act}</b><br>Progreso: {prog*100:.0f}%<br>"
-                        f"Dias completados: {int(row['Días'])*prog:.1f}<br><extra></extra>"
+                        f"Dias completados: {int(row.get('Días', row.get('Dias', 1)))*prog:.1f}<br><extra></extra>"
                     ),
                 ))
 
