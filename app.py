@@ -640,14 +640,16 @@ def normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
     df.rename(columns={"Tecnologias": "Tecnologías", "Dias": "Días"}, inplace=True)
+    # Eliminar columnas duplicadas que puedan surgir del rename (ej: "Dias" y "Días" coexistentes)
+    df = df.loc[:, ~df.columns.duplicated(keep="last")]
     if "Días" in df.columns:
-        df["Días"] = pd.to_numeric(df["Días"], errors="coerce").fillna(1).astype(int)
+        df["Días"] = pd.to_numeric(df["Días"].squeeze(), errors="coerce").fillna(1).astype(int)
     if "Progreso" in df.columns:
-        df["Progreso"] = pd.to_numeric(df["Progreso"], errors="coerce").fillna(0).clip(0, 1)
+        df["Progreso"] = pd.to_numeric(df["Progreso"].squeeze(), errors="coerce").fillna(0).clip(0, 1)
     if "Fecha Inicio" in df.columns:
-        df["Fecha Inicio"] = pd.to_datetime(df["Fecha Inicio"], dayfirst=True, errors="coerce")
+        df["Fecha Inicio"] = pd.to_datetime(df["Fecha Inicio"].squeeze(), dayfirst=True, errors="coerce")
     if "Fecha Final" in df.columns:
-        df["Fecha Final"] = pd.to_datetime(df["Fecha Final"], dayfirst=True, errors="coerce")
+        df["Fecha Final"] = pd.to_datetime(df["Fecha Final"].squeeze(), dayfirst=True, errors="coerce")
     # Recalcular Fecha Final solo si hay filas válidas
     if ("Fecha Final" not in df.columns or df["Fecha Final"].isna().all())             and "Fecha Inicio" in df.columns and "Días" in df.columns:
         mask = df["Fecha Inicio"].notna() & df["Días"].notna()
