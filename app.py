@@ -121,11 +121,12 @@ def df_demo() -> pd.DataFrame:
     df.rename(columns={"Tecnologias": "Tecnologías", "Dias": "Días"}, inplace=True)
     df["Fecha Final"]      = df.apply(lambda r: agregar_dias_habiles(r["Fecha Inicio"], int(r["Días"])), axis=1)
     df["Dias Completados"] = (df["Días"] * df["Progreso"]).round(1)
+    df["Predecesores"]     = ""
     return df
 
 def df_vacio() -> pd.DataFrame:
     cols = ["Fase","Actividades","Sede","Tecnologías","Fecha Inicio",
-            "Días","Progreso","Responsable","Estado de Salud","Fecha Final","Dias Completados"]
+            "Días","Progreso","Responsable","Estado de Salud","Predecesores","Fecha Final","Dias Completados"]
     return pd.DataFrame(columns=cols)
 
 # ══════════════════════════════════════════════════════════════
@@ -274,16 +275,15 @@ def guardar_df(nombre, df):
 # ══════════════════════════════════════════════════════════════
 COLS_EXCEL = [
     "Fase", "Actividades", "Sede", "Tecnologias",
-    "Fecha Inicio", "Dias", "Progreso", "Responsable", "Estado de Salud",
+    "Fecha Inicio", "Dias", "Progreso", "Responsable", "Estado de Salud", "Predecesores",
 ]
-# Mapeo para columnas con acento (nombre interno -> nombre Excel amigable)
 COLS_EXCEL_DISPLAY = [
     "Fase", "Actividades", "Sede", "Tecnologias",
-    "Fecha Inicio", "Dias", "Progreso", "Responsable", "Estado de Salud",
+    "Fecha Inicio", "Dias", "Progreso", "Responsable", "Estado de Salud", "Predecesores",
 ]
 COLS_INTERNOS = [
     "Fase", "Actividades", "Sede", "Tecnologias",
-    "Fecha Inicio", "Dias", "Progreso", "Responsable", "Estado de Salud",
+    "Fecha Inicio", "Dias", "Progreso", "Responsable", "Estado de Salud", "Predecesores",
 ]
 
 def _borde_fino():
@@ -301,19 +301,19 @@ def generar_excel_exportacion(df: pd.DataFrame, nombre_proyecto: str) -> bytes:
     ws.title = "Actividades"
 
     encabezados = ["Fase","Actividades","Sede","Tecnologias",
-                   "Fecha Inicio","Dias","Progreso","Responsable","Estado de Salud"]
+                   "Fecha Inicio","Dias","Progreso","Responsable","Estado de Salud","Predecesores"]
     col_df      = ["Fase","Actividades","Sede","Tecnologias",
-                   "Fecha Inicio","Dias","Progreso","Responsable","Estado de Salud"]
+                   "Fecha Inicio","Dias","Progreso","Responsable","Estado de Salud","Predecesores"]
 
     # Titulo
-    ws.merge_cells("A1:I1")
+    ws.merge_cells("A1:J1")
     ws["A1"] = f"GTD PMO - {nombre_proyecto}"
     ws["A1"].font      = Font(bold=True, size=13, color="FFFFFF", name="Arial")
     ws["A1"].fill      = PatternFill("solid", fgColor="042C53")
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 28
 
-    ws.merge_cells("A2:I2")
+    ws.merge_cells("A2:J2")
     ws["A2"] = f"Exportado: {date.today().strftime('%d/%m/%Y')}  -  {len(df)} actividades"
     ws["A2"].font      = Font(italic=True, size=9, color="5F5E5A", name="Arial")
     ws["A2"].fill      = PatternFill("solid", fgColor="E6F1FB")
@@ -375,7 +375,7 @@ def generar_excel_exportacion(df: pd.DataFrame, nombre_proyecto: str) -> bytes:
                 cell.fill = PatternFill("solid", fgColor=fondo_base)
         ws.row_dimensions[excel_row].height = 18
 
-    anchos = [15, 38, 20, 14, 14, 8, 10, 20, 15]
+    anchos = [15, 38, 20, 14, 14, 8, 10, 20, 15, 20]
     for i, w in enumerate(anchos, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -697,6 +697,10 @@ def normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
         )
     if "Dias Completados" not in df.columns and "Días" in df.columns and "Progreso" in df.columns:
         df["Dias Completados"] = (df["Días"] * df["Progreso"]).round(1)
+    if "Predecesores" not in df.columns:
+        df["Predecesores"] = ""
+    else:
+        df["Predecesores"] = df["Predecesores"].fillna("").astype(str).str.strip()
     return df
 
 
@@ -856,6 +860,9 @@ def pantalla_dashboard(nombre_proyecto: str):
                 n_resp  = st.text_input("Responsable",        key="n_resp",
                                         placeholder="Ej: Nombre Apellido")
                 n_est   = st.selectbox("Estado de Salud", ESTADOS, key="n_est")
+                opciones_pred = df_master["Actividades"].tolist() if not df_master.empty else []
+                n_pred  = st.multiselect("Predecesoras (opcional)", options=opciones_pred,
+                                         key="n_pred", placeholder="Selecciona actividades predecesoras...")
 
             if st.button("Agregar actividad", type="primary", key="btn_agregar"):
                 if not n_act.strip():
@@ -877,6 +884,7 @@ def pantalla_dashboard(nombre_proyecto: str):
                         "Progreso":         n_prog / 100,
                         "Responsable":      n_resp.strip(),
                         "Estado de Salud":  n_est,
+                        "Predecesores":     ", ".join(n_pred),
                         "Fecha Final":      ff_ts,
                         "Dias Completados": round(n_dias * n_prog / 100, 1),
                     }])
@@ -1092,20 +1100,20 @@ def pantalla_dashboard(nombre_proyecto: str):
                 "<extra></extra>"
             )
 
-            # +1 día para que la barra ocupe visualmente el día completo (incluye actividades de 1 día)
-            ff_display = ff_ts + pd.Timedelta(days=1)
-            duracion_cal = ff_display - fi_ts   # duración total en calendario para el display
+            # Duración en milisegundos (+1 día para que el último día sea visible)
+            ff_display   = ff_ts + pd.Timedelta(days=1)
+            dur_ms       = int((ff_display - fi_ts).total_seconds() * 1000)
 
             fig.add_trace(go.Bar(
-                name="", x=[ff_display], base=[fi_ts], y=[act], orientation="h",
+                name="", x=[dur_ms], base=[fi_ts], y=[act], orientation="h",
                 marker=dict(color=c_base, line=dict(color="rgba(0,0,0,0.12)", width=0.5)),
                 width=0.55, showlegend=False, hovertemplate=tooltip,
             ))
 
             if prog > 0:
-                ff_prog = fi_ts + duracion_cal * prog
+                prog_ms = int(dur_ms * prog)
                 fig.add_trace(go.Bar(
-                    name="", x=[ff_prog], base=[fi_ts], y=[act], orientation="h",
+                    name="", x=[prog_ms], base=[fi_ts], y=[act], orientation="h",
                     marker=dict(color=c_prog, opacity=0.90),
                     width=0.55, showlegend=False,
                     hovertemplate=(
@@ -1122,6 +1130,42 @@ def pantalla_dashboard(nombre_proyecto: str):
                 font=dict(size=10, color=txt_col, family="Segoe UI"),
                 xanchor="center", yanchor="middle",
             )
+
+        # ── Flechas de dependencia (estilo MS Project) ────────
+        if "Predecesores" in df_g.columns:
+            act_idx = {row["Actividades"]: row for _, row in df_g.iterrows()}
+            for _, row_s in df_g.iterrows():
+                preds_raw = str(row_s.get("Predecesores", "")).strip()
+                if not preds_raw:
+                    continue
+                for pred_name in [p.strip() for p in preds_raw.split(",") if p.strip()]:
+                    if pred_name not in act_idx:
+                        continue
+                    row_p  = act_idx[pred_name]
+                    # Punto de salida: fin de la barra predecesora
+                    x_end_pred = row_p["Fecha Final"] + pd.Timedelta(days=1)
+                    y_pred     = row_p["Actividades"]
+                    # Punto de llegada: inicio de la barra sucesora
+                    x_start_suc = row_s["Fecha Inicio"]
+                    y_suc       = row_s["Actividades"]
+                    # Color de la flecha según estado del sucesor
+                    arrow_color = GTD["red"] if row_s["Estado de Salud"] == "Retrasado" else GTD["navy_m"]
+                    # Línea vertical desde fin predecesor hacia abajo/arriba
+                    fig.add_shape(type="line",
+                        x0=x_end_pred, y0=y_pred,
+                        x1=x_end_pred, y1=y_suc,
+                        xref="x", yref="y",
+                        line=dict(color=arrow_color, width=1.5, dash="dot"),
+                    )
+                    # Línea horizontal hasta inicio sucesor
+                    fig.add_annotation(
+                        x=x_start_suc, y=y_suc,
+                        ax=x_end_pred, ay=y_suc,
+                        xref="x", yref="y", axref="x", ayref="y",
+                        showarrow=True, arrowhead=2, arrowsize=0.9,
+                        arrowwidth=1.5, arrowcolor=arrow_color,
+                        text="",
+                    )
 
         fig.add_annotation(
             x=hoy_ts, y=1, yref="paper", text="HOY",
@@ -1202,8 +1246,10 @@ def pantalla_dashboard(nombre_proyecto: str):
     st.markdown('<div class="stitle">📋 Detalle de Actividades</div>', unsafe_allow_html=True)
 
     if not df.empty:
-        df_t = df[["Fase","Actividades","Sede","Tecnologías","Fecha Inicio","Fecha Final",
-                   "Días","Progreso","Responsable","Estado de Salud"]].copy()
+        cols_tabla = ["Fase","Actividades","Sede","Tecnologías","Fecha Inicio","Fecha Final",
+                      "Días","Progreso","Responsable","Estado de Salud","Predecesores"]
+        cols_tabla = [c for c in cols_tabla if c in df.columns]
+        df_t = df[cols_tabla].copy()
         df_t["Fecha Inicio"] = df_t["Fecha Inicio"].dt.strftime("%d/%m/%Y")
         df_t["Fecha Final"]  = df_t["Fecha Final"].dt.strftime("%d/%m/%Y")
         df_t["Progreso"]     = (df_t["Progreso"] * 100).round(0).astype(int).astype(str) + "%"
