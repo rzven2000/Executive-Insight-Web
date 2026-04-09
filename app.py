@@ -11,9 +11,13 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import date, timedelta
 import io
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    OPENPYXL_OK = True
+except ModuleNotFoundError:
+    OPENPYXL_OK = False
 
 # ══════════════════════════════════════════════════════════════
 #  PALETA CORPORATIVA GTD
@@ -250,6 +254,9 @@ def _borde_fino():
 
 def generar_excel_exportacion(df: pd.DataFrame, nombre_proyecto: str) -> bytes:
     """Genera un .xlsx formateado con los datos del proyecto."""
+    if not OPENPYXL_OK:
+        st.error("openpyxl no está instalado. Agrega 'openpyxl' a requirements.txt.")
+        return b""
     wb = Workbook()
     ws = wb.active
     ws.title = "Actividades"
