@@ -43,7 +43,6 @@ GTD = {
 # ══════════════════════════════════════════════════════════════
 #  BASE DE DATOS — 10 Proyectos Telecom Chile
 # ══════════════════════════════════════════════════════════════
-@st.cache_data
 def cargar_datos() -> pd.DataFrame:
     hoy  = date.today()
     base = hoy - timedelta(days=14)
@@ -175,6 +174,11 @@ def cargar_datos() -> pd.DataFrame:
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN STREAMLIT
 # ══════════════════════════════════════════════════════════════
+# Inicializar session_state con los datos base (solo la primera vez)
+if "df_master" not in st.session_state:
+    st.session_state.df_master = cargar_datos()
+
+
 st.set_page_config(
     page_title="GTD · Dashboard PMO",
     page_icon="📡",
@@ -247,11 +251,25 @@ st.markdown(f"""
   .kpi-sub  {{ font-size: 10px; color: {GTD['gray_s']}; margin-top: 2px; }}
 
   /* Section title */
-  .stitle {{
+  .stitle {
       font-size: 12px; font-weight: 700; color: {GTD['navy']};
       text-transform: uppercase; letter-spacing: .08em;
       border-bottom: 2px solid {GTD['blue']};
       padding-bottom: 5px; margin-bottom: 10px;
+  }
+
+  /* Gestión de actividades */
+  .mgmt-panel {{
+      background: {GTD['blue_xl']};
+      border: 1px solid {GTD['blue_l']};
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 18px;
+  }}
+  .mgmt-title {{
+      font-size: 12px; font-weight: 700; color: {GTD['navy']};
+      text-transform: uppercase; letter-spacing: .08em;
+      margin-bottom: 10px;
   }}
 </style>
 """, unsafe_allow_html=True)
@@ -260,7 +278,7 @@ st.markdown(f"""
 # ══════════════════════════════════════════════════════════════
 #  DATOS
 # ══════════════════════════════════════════════════════════════
-df_master = cargar_datos()
+df_master = st.session_state.df_master
 
 
 # ══════════════════════════════════════════════════════════════
@@ -384,6 +402,105 @@ with c4:
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<div style='margin-top:22px;'></div>", unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════
+#  GESTIÓN DE ACTIVIDADES — Agregar / Eliminar
+# ══════════════════════════════════════════════════════════════
+FASES      = ["Inicio", "Planificación", "Ejecución", "Cierre"]
+TECNOS     = ["Fibra Óptica", "MMOO", "Starlink", "MPLS", "Fortinet", "Otra"]
+ESTADOS    = ["A tiempo", "En Riesgo", "Retrasado"]
+RESPONSABLES = sorted(st.session_state.df_master["Responsable"].unique().tolist())
+
+with st.expander("➕ Gestionar Actividades — Agregar / Eliminar", expanded=False):
+    tab_add, tab_del = st.tabs(["Agregar actividad", "Eliminar actividades"])
+
+    # ── TAB: AGREGAR ──────────────────────────────────────────
+    with tab_add:
+        st.markdown(
+            f"<div style='font-size:11px;color:{GTD['gray_m']};margin-bottom:12px;'>"
+            "Completa todos los campos y presiona <b>Agregar</b>.</div>",
+            unsafe_allow_html=True,
+        )
+        fa1, fa2 = st.columns(2)
+        with fa1:
+            n_fase   = st.selectbox("Fase",        FASES,   key="n_fase")
+            n_act    = st.text_input("Actividad",            key="n_act",
+                                     placeholder="Ej: Tendido FO Sector Oriente")
+            n_sede   = st.text_input("Sede",                 key="n_sede",
+                                     placeholder="Ej: Santiago Centro")
+            n_tecn   = st.selectbox("Tecnología",  TECNOS,  key="n_tecn")
+        with fa2:
+            n_fi     = st.date_input("Fecha Inicio", value=date.today(), key="n_fi")
+            n_dias   = st.number_input("Duración (días)", min_value=1, max_value=365,
+                                       value=5, step=1, key="n_dias")
+            n_prog   = st.slider("Progreso (%)", 0, 100, 0, step=5, key="n_prog")
+            n_resp   = st.text_input("Responsable",          key="n_resp",
+                                     placeholder="Ej: Nombre Apellido")
+            n_estado = st.selectbox("Estado de Salud", ESTADOS, key="n_estado")
+
+        if st.button("✅ Agregar actividad", type="primary", use_container_width=False):
+            if not n_act.strip():
+                st.error("El nombre de la actividad no puede estar vacío.")
+            elif not n_sede.strip():
+                st.error("La sede no puede estar vacía.")
+            elif not n_resp.strip():
+                st.error("El responsable no puede estar vacío.")
+            else:
+                fi_ts  = pd.Timestamp(n_fi)
+                ff_ts  = fi_ts + pd.Timedelta(days=int(n_dias) - 1)
+                nueva  = pd.DataFrame([{
+                    "Fase":            n_fase,
+                    "Actividades":     n_act.strip(),
+                    "Sede":            n_sede.strip(),
+                    "Tecnologías":     n_tecn,
+                    "Fecha Inicio":    fi_ts,
+                    "Días":            int(n_dias),
+                    "Progreso":        n_prog / 100,
+                    "Responsable":     n_resp.strip(),
+                    "Estado de Salud": n_estado,
+                    "Fecha Final":     ff_ts,
+                    "Días Completados": round(n_dias * n_prog / 100, 1),
+                }])
+                st.session_state.df_master = pd.concat(
+                    [st.session_state.df_master, nueva], ignore_index=True
+                )
+                st.success(f"✅ Actividad **{n_act.strip()}** agregada correctamente.")
+                st.rerun()
+
+    # ── TAB: ELIMINAR ─────────────────────────────────────────
+    with tab_del:
+        st.markdown(
+            f"<div style='font-size:11px;color:{GTD['gray_m']};margin-bottom:12px;'>"
+            "Selecciona una o más actividades y presiona <b>Eliminar</b>. "
+            "Esta acción no se puede deshacer.</div>",
+            unsafe_allow_html=True,
+        )
+        opciones = st.session_state.df_master["Actividades"].tolist()
+        a_eliminar = st.multiselect(
+            "Actividades a eliminar",
+            options=opciones,
+            placeholder="Selecciona actividades…",
+            key="a_eliminar",
+        )
+        col_btn, col_info = st.columns([1, 4])
+        with col_btn:
+            if st.button("🗑️ Eliminar seleccionadas", type="primary",
+                         disabled=len(a_eliminar) == 0):
+                st.session_state.df_master = st.session_state.df_master[
+                    ~st.session_state.df_master["Actividades"].isin(a_eliminar)
+                ].reset_index(drop=True)
+                st.success(f"🗑️ {len(a_eliminar)} actividad(es) eliminada(s).")
+                st.rerun()
+        with col_info:
+            if a_eliminar:
+                st.warning(f"⚠️ Se eliminarán {len(a_eliminar)} actividad(es): "
+                           f"{', '.join(a_eliminar)}")
+
+st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
+
+# Actualizar df con session_state tras posibles cambios
+df_master = st.session_state.df_master
 
 
 # ══════════════════════════════════════════════════════════════
