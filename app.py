@@ -11,6 +11,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import date, timedelta
 import io
+import numpy as np
 try:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -18,6 +19,44 @@ try:
     OPENPYXL_OK = True
 except ModuleNotFoundError:
     OPENPYXL_OK = False
+
+# ══════════════════════════════════════════════════════════════
+#  FESTIVOS CHILE Y CÁLCULO DE DÍAS HÁBILES
+# ══════════════════════════════════════════════════════════════
+FESTIVOS_CL = [
+    # 2024
+    "2024-01-01","2024-03-29","2024-03-30","2024-05-01","2024-05-21",
+    "2024-06-20","2024-06-29","2024-07-16","2024-08-15","2024-09-18",
+    "2024-09-19","2024-09-20","2024-10-12","2024-10-31","2024-11-01",
+    "2024-12-08","2024-12-25",
+    # 2025
+    "2025-01-01","2025-04-18","2025-04-19","2025-05-01","2025-05-21",
+    "2025-06-20","2025-06-29","2025-07-16","2025-08-15","2025-09-18",
+    "2025-09-19","2025-10-12","2025-10-31","2025-11-01","2025-12-08","2025-12-25",
+    # 2026
+    "2026-01-01","2026-04-03","2026-04-04","2026-05-01","2026-05-21",
+    "2026-06-19","2026-06-29","2026-07-16","2026-08-15","2026-09-18",
+    "2026-09-19","2026-10-12","2026-10-31","2026-11-01","2026-12-08","2026-12-25",
+    # 2027
+    "2027-01-01","2027-03-26","2027-03-27","2027-05-01","2027-05-21",
+    "2027-06-25","2027-06-28","2027-07-16","2027-08-15","2027-09-18",
+    "2027-09-19","2027-10-12","2027-10-29","2027-11-01","2027-12-08","2027-12-25",
+]
+_FESTIVOS_NP = np.array(FESTIVOS_CL, dtype="datetime64[D]")
+
+
+def agregar_dias_habiles(fecha_inicio: pd.Timestamp, dias_habiles: int) -> pd.Timestamp:
+    """Suma N días hábiles (lunes-viernes, excluyendo festivos CL) a fecha_inicio.
+    El día de inicio cuenta como día 1 si es hábil."""
+    if dias_habiles < 1:
+        dias_habiles = 1
+    fecha_np = np.datetime64(fecha_inicio.date(), "D")
+    # Si el día de inicio cae en fin de semana o festivo, avanzar al siguiente hábil
+    fecha_np = np.busday_offset(fecha_np, 0, roll="forward", holidays=_FESTIVOS_NP)
+    # Sumar (dias_habiles - 1) porque el primer día ya cuenta
+    fecha_final = np.busday_offset(fecha_np, dias_habiles - 1, roll="forward", holidays=_FESTIVOS_NP)
+    return pd.Timestamp(str(fecha_final))
+
 
 # ══════════════════════════════════════════════════════════════
 #  PALETA CORPORATIVA GTD
@@ -80,7 +119,7 @@ def df_demo() -> pd.DataFrame:
     ]
     df = pd.DataFrame(registros)
     df.rename(columns={"Tecnologias": "Tecnologías", "Dias": "Días"}, inplace=True)
-    df["Fecha Final"]      = df.apply(lambda r: r["Fecha Inicio"] + pd.Timedelta(days=r["Días"]-1), axis=1)
+    df["Fecha Final"]      = df.apply(lambda r: agregar_dias_habiles(r["Fecha Inicio"], int(r["Días"])), axis=1)
     df["Dias Completados"] = (df["Días"] * df["Progreso"]).round(1)
     return df
 
@@ -827,7 +866,7 @@ def pantalla_dashboard(nombre_proyecto: str):
                     st.error("El responsable no puede estar vacio.")
                 else:
                     fi_ts = pd.Timestamp(n_fi)
-                    ff_ts = fi_ts + pd.Timedelta(days=int(n_dias) - 1)
+                    ff_ts = agregar_dias_habiles(fi_ts, int(n_dias))
                     nueva = pd.DataFrame([{
                         "Fase":             n_fase,
                         "Actividades":      n_act.strip(),
@@ -1053,14 +1092,18 @@ def pantalla_dashboard(nombre_proyecto: str):
                 "<extra></extra>"
             )
 
+            # +1 día para que la barra ocupe visualmente el día completo (incluye actividades de 1 día)
+            ff_display = ff_ts + pd.Timedelta(days=1)
+            duracion_cal = ff_display - fi_ts   # duración total en calendario para el display
+
             fig.add_trace(go.Bar(
-                name="", x=[ff_ts], base=[fi_ts], y=[act], orientation="h",
+                name="", x=[ff_display], base=[fi_ts], y=[act], orientation="h",
                 marker=dict(color=c_base, line=dict(color="rgba(0,0,0,0.12)", width=0.5)),
                 width=0.55, showlegend=False, hovertemplate=tooltip,
             ))
 
             if prog > 0:
-                ff_prog = fi_ts + (ff_ts - fi_ts) * prog
+                ff_prog = fi_ts + duracion_cal * prog
                 fig.add_trace(go.Bar(
                     name="", x=[ff_prog], base=[fi_ts], y=[act], orientation="h",
                     marker=dict(color=c_prog, opacity=0.90),
@@ -1094,7 +1137,7 @@ def pantalla_dashboard(nombre_proyecto: str):
             shapes=shapes, font=dict(family="Segoe UI"),
             xaxis=dict(
                 type="date",
-                range=[fecha_min - pd.Timedelta(days=1), fecha_max + pd.Timedelta(days=4)],
+                range=[fecha_min - pd.Timedelta(days=1), fecha_max + pd.Timedelta(days=5)],
                 tickvals=ticks, ticktext=tick_labels,
                 tickfont=dict(size=10, color=GTD["gray_dk"], family="Segoe UI"),
                 gridcolor=GTD["gray_l"], gridwidth=0.5,
