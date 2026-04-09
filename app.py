@@ -251,12 +251,12 @@ st.markdown(f"""
   .kpi-sub  {{ font-size: 10px; color: {GTD['gray_s']}; margin-top: 2px; }}
 
   /* Section title */
-  .stitle {
+  .stitle {{
       font-size: 12px; font-weight: 700; color: {GTD['navy']};
       text-transform: uppercase; letter-spacing: .08em;
       border-bottom: 2px solid {GTD['blue']};
       padding-bottom: 5px; margin-bottom: 10px;
-  }
+  }}
 
   /* Gestión de actividades */
   .mgmt-panel {{
