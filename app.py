@@ -10,6 +10,10 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import date, timedelta
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # ══════════════════════════════════════════════════════════════
 #  PALETA CORPORATIVA GTD
@@ -220,6 +224,262 @@ ESTADOS = ["A tiempo", "En Riesgo", "Retrasado"]
 
 def guardar_df(nombre, df):
     st.session_state.proyectos[nombre]["df"] = df
+
+
+# ══════════════════════════════════════════════════════════════
+#  EXCEL: EXPORTAR / IMPORTAR
+# ══════════════════════════════════════════════════════════════
+COLS_EXCEL = [
+    "Fase", "Actividades", "Sede", "Tecnologias",
+    "Fecha Inicio", "Dias", "Progreso", "Responsable", "Estado de Salud",
+]
+# Mapeo para columnas con acento (nombre interno -> nombre Excel amigable)
+COLS_EXCEL_DISPLAY = [
+    "Fase", "Actividades", "Sede", "Tecnologias",
+    "Fecha Inicio", "Dias", "Progreso", "Responsable", "Estado de Salud",
+]
+COLS_INTERNOS = [
+    "Fase", "Actividades", "Sede", "Tecnologias",
+    "Fecha Inicio", "Dias", "Progreso", "Responsable", "Estado de Salud",
+]
+
+def _borde_fino():
+    lado = Side(style="thin", color="BDBDBD")
+    return Border(left=lado, right=lado, top=lado, bottom=lado)
+
+
+def generar_excel_exportacion(df: pd.DataFrame, nombre_proyecto: str) -> bytes:
+    """Genera un .xlsx formateado con los datos del proyecto."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Actividades"
+
+    encabezados = ["Fase","Actividades","Sede","Tecnologias",
+                   "Fecha Inicio","Dias","Progreso","Responsable","Estado de Salud"]
+    col_df      = ["Fase","Actividades","Sede","Tecnologias",
+                   "Fecha Inicio","Dias","Progreso","Responsable","Estado de Salud"]
+
+    # Titulo
+    ws.merge_cells("A1:I1")
+    ws["A1"] = f"GTD PMO - {nombre_proyecto}"
+    ws["A1"].font      = Font(bold=True, size=13, color="FFFFFF", name="Arial")
+    ws["A1"].fill      = PatternFill("solid", fgColor="042C53")
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    ws.merge_cells("A2:I2")
+    ws["A2"] = f"Exportado: {date.today().strftime('%d/%m/%Y')}  -  {len(df)} actividades"
+    ws["A2"].font      = Font(italic=True, size=9, color="5F5E5A", name="Arial")
+    ws["A2"].fill      = PatternFill("solid", fgColor="E6F1FB")
+    ws["A2"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 16
+
+    for c_idx, col in enumerate(encabezados, 1):
+        cell = ws.cell(row=3, column=c_idx, value=col)
+        cell.font      = Font(bold=True, size=10, color="FFFFFF", name="Arial")
+        cell.fill      = PatternFill("solid", fgColor="0055A4")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border    = _borde_fino()
+    ws.row_dimensions[3].height = 22
+
+    color_alt = ["FFFFFF", "EBF4FF"]
+    col_salud_colors = {
+        "A tiempo": "D5F5E3",
+        "En Riesgo": "FDEBD0",
+        "Retrasado": "FADBD8",
+    }
+    # Preparar df a exportar: crear df con columnas internas (Tecnologias, Dias)
+    if not df.empty:
+        df_exp = df.copy()
+        # Manejar nombres alternativos
+        for col_alt, col_canon in [("Tecnologias","Tecnologias"), ("Dias","Dias")]:
+            if col_canon not in df_exp.columns and col_alt in df_exp.columns:
+                df_exp[col_canon] = df_exp[col_alt]
+    else:
+        df_exp = pd.DataFrame(columns=col_df)
+    # Asegurar que todas las columnas existan
+    for c in col_df:
+        if c not in df_exp.columns:
+            df_exp[c] = ""
+
+    for r_idx, (_, row) in enumerate(df_exp.iterrows(), 1):
+        excel_row  = r_idx + 3
+        fondo_base = color_alt[r_idx % 2]
+        salud_val  = str(row.get("Estado de Salud", ""))
+
+        for c_idx, (enc, col_src) in enumerate(zip(encabezados, col_df), 1):
+            val = row.get(col_src, "")
+            if enc == "Fecha Inicio" and hasattr(val, "strftime"):
+                val = val.strftime("%d/%m/%Y")
+            elif enc == "Progreso":
+                try:
+                    val = f"{int(float(val)*100)}%"
+                except Exception:
+                    val = "0%"
+            cell = ws.cell(row=excel_row, column=c_idx, value=val)
+            cell.font      = Font(size=10, name="Arial")
+            cell.alignment = Alignment(
+                horizontal="center" if enc in ("Fase","Dias","Progreso","Fecha Inicio","Estado de Salud") else "left",
+                vertical="center"
+            )
+            cell.border = _borde_fino()
+            if enc == "Estado de Salud" and salud_val in col_salud_colors:
+                cell.fill = PatternFill("solid", fgColor=col_salud_colors[salud_val])
+            else:
+                cell.fill = PatternFill("solid", fgColor=fondo_base)
+        ws.row_dimensions[excel_row].height = 18
+
+    anchos = [15, 38, 20, 14, 14, 8, 10, 20, 15]
+    for i, w in enumerate(anchos, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    # Hoja plantilla
+    wi = wb.create_sheet("Plantilla")
+    wi.merge_cells("A1:I1")
+    wi["A1"] = "PLANTILLA PARA IMPORTAR ACTIVIDADES"
+    wi["A1"].font      = Font(bold=True, size=13, color="FFFFFF", name="Arial")
+    wi["A1"].fill      = PatternFill("solid", fgColor="042C53")
+    wi["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    wi.row_dimensions[1].height = 26
+
+    instrucciones = [
+        ("A3", "INSTRUCCIONES", True),
+        ("A4", "1. Completa los datos desde la fila 9 en adelante. NO modificar los encabezados."),
+        ("A5", "2. Fecha Inicio: usa formato DD/MM/AAAA  ej: 15/04/2025"),
+        ("A6", "3. Progreso: numero entre 0 y 100 (sin simbolo %).  ej: 75"),
+        ("A7", "4. Guarda el archivo y cargalo en la app desde la pestana Importar Excel."),
+    ]
+    for ref, txt, *bold in instrucciones:
+        wi.merge_cells(f"{ref}:I{ref[1:]}")
+        wi[ref] = txt
+        wi[ref].font = Font(bold=bool(bold), size=10, name="Arial",
+                            color="042C53" if bold else "2C2C2A")
+        wi.row_dimensions[int(ref[1:])].height = 16
+
+    for c_idx, col in enumerate(encabezados, 1):
+        cell = wi.cell(row=8, column=c_idx, value=col)
+        cell.font      = Font(bold=True, size=10, color="FFFFFF", name="Arial")
+        cell.fill      = PatternFill("solid", fgColor="0055A4")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border    = _borde_fino()
+    wi.row_dimensions[8].height = 22
+
+    ayudas = {
+        "Fase":            " | ".join(FASES),
+        "Tecnologias":     " | ".join(TECNOS),
+        "Estado de Salud": " | ".join(ESTADOS),
+        "Progreso":        "Numero 0-100",
+        "Dias":            "Numero entero",
+        "Fecha Inicio":    "DD/MM/AAAA",
+    }
+    for c_idx, col in enumerate(encabezados, 1):
+        if col in ayudas:
+            cell = wi.cell(row=9, column=c_idx, value=ayudas[col])
+            cell.font      = Font(italic=True, size=8, color="5F5E5A", name="Arial")
+            cell.fill      = PatternFill("solid", fgColor="E6F1FB")
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+            cell.border    = _borde_fino()
+    wi.row_dimensions[9].height = 30
+
+    ejemplo = ["Ejecucion","Ejemplo: Tendido FO Norte","Quinta Normal",
+               "Fibra Optica", date.today().strftime("%d/%m/%Y"),
+               7, 30, "Juan Perez", "A tiempo"]
+    for c_idx, val in enumerate(ejemplo, 1):
+        cell = wi.cell(row=10, column=c_idx, value=val)
+        cell.font      = Font(italic=True, size=9, color="888780", name="Arial")
+        cell.fill      = PatternFill("solid", fgColor="F1EFE8")
+        cell.alignment = Alignment(
+            horizontal="center" if c_idx in [1,5,6,7,9] else "left")
+        cell.border    = _borde_fino()
+    wi.row_dimensions[10].height = 18
+
+    for i, w in enumerate(anchos, 1):
+        wi.column_dimensions[get_column_letter(i)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def importar_desde_excel(archivo) -> tuple:
+    """Lee un Excel subido. Retorna (df_valido_o_None, lista_errores)."""
+    errores = []
+    try:
+        df_raw = pd.read_excel(archivo, sheet_name=0, header=None)
+    except Exception as e:
+        return None, [f"No se pudo leer el archivo: {e}"]
+
+    # Buscar fila de encabezados
+    fila_header = None
+    for i, row in df_raw.iterrows():
+        if "Actividades" in row.values:
+            fila_header = i
+            break
+
+    if fila_header is None:
+        return None, ["No se encontro la fila de encabezados con columna 'Actividades'."]
+
+    df_raw.columns = df_raw.iloc[fila_header]
+    df_raw = df_raw.iloc[fila_header + 1:].reset_index(drop=True)
+
+    # Filtrar vacas y filas de ayuda
+    df_raw = df_raw[df_raw["Actividades"].notna()].copy()
+    df_raw = df_raw[df_raw["Actividades"].astype(str).str.strip() != ""].copy()
+    df_raw = df_raw[~df_raw["Actividades"].astype(str).str.startswith("Ejemplo")].copy()
+
+    if df_raw.empty:
+        return None, ["El archivo no contiene filas de datos validos."]
+
+    encabezados_req = ["Fase","Actividades","Sede","Tecnologias",
+                       "Fecha Inicio","Dias","Progreso","Responsable","Estado de Salud"]
+    faltantes = [c for c in encabezados_req if c not in df_raw.columns]
+    if faltantes:
+        return None, [f"Faltan columnas: {', '.join(faltantes)}"]
+
+    df = df_raw[encabezados_req].copy()
+
+    # Fechas
+    df["Fecha Inicio"] = pd.to_datetime(df["Fecha Inicio"], dayfirst=True, errors="coerce")
+    n_malas = df["Fecha Inicio"].isna().sum()
+    if n_malas > 0:
+        errores.append(f"Advertencia: {n_malas} fila(s) con fecha invalida omitidas.")
+        df = df[df["Fecha Inicio"].notna()].copy()
+
+    # Progreso
+    def norm_prog(val):
+        try:
+            s = str(val).replace("%","").strip()
+            f = float(s)
+            return f / 100 if f > 1 else f
+        except Exception:
+            return 0.0
+    df["Progreso"] = df["Progreso"].apply(norm_prog).clip(0, 1)
+
+    # Dias
+    df["Dias"] = pd.to_numeric(df["Dias"], errors="coerce").fillna(1).astype(int).clip(1)
+
+    # Calcular Fecha Final
+    df["Fecha Final"]      = df.apply(
+        lambda r: r["Fecha Inicio"] + pd.Timedelta(days=int(r["Dias"]) - 1), axis=1
+    )
+    df["Dias Completados"] = (df["Dias"] * df["Progreso"]).round(1)
+
+    # Renombrar columnas sin tilde a con tilde para el sistema interno
+    df.rename(columns={"Tecnologias": "Tecnologias", "Dias": "Dias"}, inplace=True)
+
+    # Strings limpios
+    for col in ["Fase","Actividades","Sede","Tecnologias","Responsable","Estado de Salud"]:
+        df[col] = df[col].astype(str).str.strip()
+
+    # Valores por defecto para columnas controladas
+    df.loc[~df["Fase"].isin(FASES),             "Fase"]            = "Ejecucion"
+    df.loc[~df["Estado de Salud"].isin(ESTADOS), "Estado de Salud"] = "A tiempo"
+
+    if df.empty:
+        return None, errores + ["No quedaron filas validas."]
+
+    return df, errores
+
 
 
 # ══════════════════════════════════════════════════════════════
@@ -494,8 +754,8 @@ def pantalla_dashboard(nombre_proyecto: str):
     st.markdown("<div style='margin-top:22px;'></div>", unsafe_allow_html=True)
 
     # ── Gestion de actividades ────────────────────────────────
-    with st.expander("➕ Gestionar Actividades — Agregar / Eliminar", expanded=False):
-        tab_add, tab_del = st.tabs(["Agregar actividad", "Eliminar actividades"])
+    with st.expander("➕ Gestionar Actividades — Agregar / Eliminar / Excel", expanded=False):
+        tab_add, tab_del, tab_xl = st.tabs(["Agregar actividad", "Eliminar actividades", "📥 Importar / 📤 Exportar Excel"])
 
         with tab_add:
             st.markdown(
@@ -571,6 +831,96 @@ def pantalla_dashboard(nombre_proyecto: str):
             with cb2:
                 if a_eliminar:
                     st.warning(f"Se eliminaran: {', '.join(a_eliminar)}")
+
+        with tab_xl:
+            xe1, xe2 = st.columns(2)
+
+            # ── EXPORTAR ─────────────────────────────────────
+            with xe1:
+                st.markdown(
+                    f"<div style='font-size:12px;font-weight:700;color:{GTD['navy']};margin-bottom:8px;'>"                    "📤 Exportar a Excel</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<div style='font-size:11px;color:{GTD['gray_m']};margin-bottom:10px;'>"                    "Descarga todas las actividades del proyecto en un .xlsx formateado. "                    "Incluye hoja de plantilla para reimportar.</div>",
+                    unsafe_allow_html=True,
+                )
+                df_actual = st.session_state.proyectos[nombre_proyecto]["df"]
+                excel_bytes = generar_excel_exportacion(df_actual, nombre_proyecto)
+                st.download_button(
+                    label="⬇️ Descargar Excel del proyecto",
+                    data=excel_bytes,
+                    file_name=f"GTD_PMO_{nombre_proyecto.replace(' ','_')}_{date.today().isoformat()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True,
+                    key="btn_exportar",
+                )
+                if not df_actual.empty:
+                    st.caption(f"El archivo incluira {len(df_actual)} actividades.")
+                else:
+                    st.caption("El proyecto no tiene actividades aun. Puedes descargar la plantilla vacia.")
+
+            # ── IMPORTAR ─────────────────────────────────────
+            with xe2:
+                st.markdown(
+                    f"<div style='font-size:12px;font-weight:700;color:{GTD['navy']};margin-bottom:8px;'>"                    "📥 Importar desde Excel</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<div style='font-size:11px;color:{GTD['gray_m']};margin-bottom:10px;'>"                    "Sube un .xlsx con el formato de la plantilla. Puedes agregar o reemplazar las actividades existentes.</div>",
+                    unsafe_allow_html=True,
+                )
+                archivo_subido = st.file_uploader(
+                    "Selecciona archivo .xlsx",
+                    type=["xlsx","xls"],
+                    key="file_uploader_xl",
+                )
+                modo_import = st.radio(
+                    "Modo de importacion",
+                    ["Agregar a las existentes", "Reemplazar todas las actividades"],
+                    key="modo_import",
+                    horizontal=True,
+                )
+                if archivo_subido is not None:
+                    df_importado, errores_imp = importar_desde_excel(archivo_subido)
+
+                    if errores_imp:
+                        for err in errores_imp:
+                            if err.startswith("Advertencia"):
+                                st.warning(err)
+                            else:
+                                st.error(err)
+
+                    if df_importado is not None:
+                        st.success(f"Archivo valido: {len(df_importado)} actividades listas para importar.")
+
+                        # Preview
+                        with st.expander("Vista previa de los datos", expanded=False):
+                            preview = df_importado[["Fase","Actividades","Sede","Responsable","Estado de Salud"]].copy()
+                            st.dataframe(preview, use_container_width=True, height=200)
+
+                        if st.button("✅ Confirmar importacion", type="primary", key="btn_confirmar_import"):
+                            df_actual_imp = st.session_state.proyectos[nombre_proyecto]["df"]
+                            # Adaptar nombres de columnas del Excel a nombres internos del sistema
+                            df_importado_sys = df_importado.rename(columns={
+                                "Tecnologias": "Tecnologias",
+                                "Dias": "Dias",
+                            })
+                            # Columnas internas con acento
+                            if "Tecnologias" not in df_importado_sys.columns and "Tecnologias" in df_importado_sys.columns:
+                                df_importado_sys = df_importado_sys.rename(columns={"Tecnologias":"Tecnologias"})
+                            if "Dias" not in df_importado_sys.columns and "Dias" in df_importado_sys.columns:
+                                df_importado_sys = df_importado_sys.rename(columns={"Dias":"Dias"})
+
+                            if modo_import == "Reemplazar todas las actividades":
+                                guardar_df(nombre_proyecto, df_importado_sys.reset_index(drop=True))
+                                st.success(f"Proyecto actualizado: {len(df_importado_sys)} actividades cargadas.")
+                            else:
+                                merged = pd.concat([df_actual_imp, df_importado_sys], ignore_index=True)
+                                guardar_df(nombre_proyecto, merged)
+                                st.success(f"{len(df_importado_sys)} actividades agregadas. Total: {len(merged)}.")
+                            st.rerun()
 
     st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
     # Refrescar por si hubo cambios en el expander
