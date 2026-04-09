@@ -636,6 +636,9 @@ def pantalla_proyectos():
 def normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
     """Asegura nombres canónicos con tilde y tipos correctos."""
     df = df.copy()
+    # Retornar inmediatamente si está vacío para evitar errores en apply()
+    if df.empty:
+        return df
     df.rename(columns={"Tecnologias": "Tecnologías", "Dias": "Días"}, inplace=True)
     if "Días" in df.columns:
         df["Días"] = pd.to_numeric(df["Días"], errors="coerce").fillna(1).astype(int)
@@ -645,8 +648,10 @@ def normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
         df["Fecha Inicio"] = pd.to_datetime(df["Fecha Inicio"], dayfirst=True, errors="coerce")
     if "Fecha Final" in df.columns:
         df["Fecha Final"] = pd.to_datetime(df["Fecha Final"], dayfirst=True, errors="coerce")
-    if ("Fecha Final" not in df.columns or df["Fecha Final"].isna().all()) and "Fecha Inicio" in df.columns and "Días" in df.columns:
-        df["Fecha Final"] = df.apply(
+    # Recalcular Fecha Final solo si hay filas válidas
+    if ("Fecha Final" not in df.columns or df["Fecha Final"].isna().all())             and "Fecha Inicio" in df.columns and "Días" in df.columns:
+        mask = df["Fecha Inicio"].notna() & df["Días"].notna()
+        df.loc[mask, "Fecha Final"] = df.loc[mask].apply(
             lambda r: r["Fecha Inicio"] + pd.Timedelta(days=int(r["Días"]) - 1), axis=1
         )
     if "Dias Completados" not in df.columns and "Días" in df.columns and "Progreso" in df.columns:
